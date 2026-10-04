@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Barcode Scanner</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #181c24;
+    --line: #2a3140;
+    --txt: #e7ebf2;
+    --muted: #97a1b3;
+    --accent: #3b82f6;
+    --ok: #22c55e;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--txt);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    touch-action: manipulation;
+    overscroll-behavior-y: contain;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  header {
+    padding: calc(env(safe-area-inset-top) + 12px) 16px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  .spacer { flex: 1; }
+  #status {
+    font-size: 12px;
+    color: var(--muted);
+    padding: 4px 9px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  #status.live { color: var(--ok); border-color: #1c5233; }
+
+  #stage {
+    position: relative;
+    margin: 0 16px;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #000;
+    aspect-ratio: 3 / 4;
+    max-height: 52dvh;
+    display: grid;
+    place-items: center;
+  }
+  #reader, #reader > div, #reader video { width: 100% !important; height: 100% !important; }
+  #reader video { object-fit: cover; display: block; }
+  #reader__scan_region img { display: none; }
+
+  #idle {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    gap: 10px;
+    text-align: center;
+    color: var(--muted);
+    padding: 20px;
+    font-size: 14px;
+  }
+
+  #guide {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .25s;
+  }
+  #guide.on { opacity: 1; }
+  #guide i {
+    position: absolute;
+    width: 26px; height: 26px;
+    border: 3px solid var(--accent);
+  }
+  #guide i:nth-child(1) { top: 32%; left: 8%;  border-right: 0; border-bottom: 0; border-radius: 8px 0 0 0; }
+  #guide i:nth-child(2) { top: 32%; right: 8%; border-left: 0;  border-bottom: 0; border-radius: 0 8px 0 0; }
+  #guide i:nth-child(3) { bottom: 32%; left: 8%;  border-right: 0; border-top: 0; border-radius: 0 0 0 8px; }
+  #guide i:nth-child(4) { bottom: 32%; right: 8%; border-left: 0;  border-top: 0; border-radius: 0 0 8px 0; }
+
+  .bar {
+    position: absolute;
+    left: 8%; right: 8%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: sweep 2.2s ease-in-out infinite;
+  }
+  @keyframes sweep { 0%,100% { top: 33%; } 50% { top: 67%; } }
+
+  .tools {
+    position: absolute;
+    top: 10px;
+    display: flex;
+    gap: 8px;
+  }
+  .tools.left { left: 10px; }
+  .tools.right { right: 10px; }
+  .tool {
+    width: 42px; height: 42px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: rgba(12,14,18,.72);
+    color: var(--txt);
+    backdrop-filter: blur(6px);
+    font-size: 18px;
+    display: grid;
+    place-items: center;
+  }
+  .tool[hidden] { display: none; }
+  .tool.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  #result {
+    margin: 14px 16px 0;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+    display: none;
+  }
+  #result.on { display: block; }
+  #result .kind { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+  #value {
+    margin: 6px 0 10px;
+    font: 15px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    word-break: break-all;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  #value.empty { color: var(--muted); font-family: inherit; }
+
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button.act {
+    flex: 1 1 auto;
+    min-height: 44px;
+    padding: 0 16px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: #212734;
+    color: var(--txt);
+    font-size: 15px;
+    font-weight: 500;
+  }
+  button.act.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.act:active { transform: scale(.98); }
+
+  #mode {
+    display: flex;
+    gap: 6px;
+    margin: 0 16px 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 4px;
+  }
+  #mode button {
+    flex: 1;
+    min-height: 38px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  #mode button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+  #history { margin: 14px 16px calc(env(safe-area-inset-bottom) + 20px); }
+  #history h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 8px; }
+  #history ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  #history:not(.on) { display: none; }
+  #history li button {
+    width: 100%;
+    text-align: left;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 12px;
+    color: var(--txt);
+    font: 13px/1.35 ui-monospace, Menlo, Consolas, monospace;
+    word-break: break-all;
+  }
+  #history:empty, #history ol:empty { display: none; }
+
+  #notice {
+    margin: 12px 16px 0;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid #4a2a2a;
+    background: #241618;
+    color: #ffd7d7;
+    font-size: 14px;
+    display: none;
+  }
+  #notice.on { display: block; }
+  #file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  #file-host { position: absolute; width: 0; height: 0; overflow: hidden; opacity: 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Barcode Scanner</h1>
+  <div class="spacer"></div>
+  <div id="status">Idle</div>
+</header>
+
+<div id="mode">
+  <button id="mOnce" aria-pressed="false">Once</button>
+  <button id="mCont" aria-pressed="true">Continuous</button>
+</div>
+
+<div id="stage">
+  <div id="reader"></div>
+
+  <div id="idle">
+    <div>Point the camera at a barcode or QR code</div>
+    <div style="opacity:.7">Uses the rear camera. Works best in good light.</div>
+  </div>
+
+  <div id="guide">
+    <i></i><i></i><i></i><i></i>
+    <div class="bar"></div>
+  </div>
+
+  <div class="tools left">
+    <button class="tool" id="torch" title="Flashlight" hidden>☀</button>
+  </div>
+  <div class="tools right">
+    <button class="tool" id="flip" title="Switch camera" hidden>&#8635;</button>
+  </div>
+</div>
+
+<div id="notice"></div>
+
+<div id="result">
+  <div class="kind" id="kind">Scanned</div>
+  <div id="value"></div>
+  <div class="row">
+    <button class="act primary" id="copy">Copy</button>
+    <button class="act" id="open" hidden>Open link</button>
+    <button class="act" id="clear">Clear</button>
+  </div>
+</div>
+
+<div class="row" style="margin:14px 16px 0">
+  <button class="act primary" id="start">Start camera</button>
+  <button class="act" id="pick">From photo</button>
+</div>
+
+<section id="history">
+  <h2>Recent</h2>
+  <ol id="list"></ol>
+</section>
+
+<input type="file" id="file" accept="image/*">
+<div id="file-host"></div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+(() => {
+  "use strict";
+
+  const $ = (s) => document.querySelector(s);
+  const el = {
+    stage: $("#stage"), idle: $("#idle"), guide: $("#guide"), status: $("#status"),
+    notice: $("#notice"), result: $("#result"), value: $("#value"), kind: $("#kind"),
+    copy: $("#copy"), open: $("#open"), clear: $("#clear"),
+    start: $("#start"), pick: $("#pick"), file: $("#file"),
+    torch: $("#torch"), flip: $("#flip"), list: $("#list"),
+    mOnce: $("#mOnce"), mCont: $("#mCont"), history: $("#history")
+  };
+
+  let scanner = null;
+  let fileScanner = null;
+  let cameras = [];
+  let cameraId = null;
+  let torchOn = false;
+  let running = false;
+  let continuous = true;
+  let lastValue = null;
+  let lastScanAt = 0;
+  let history = [];
+  let audioCtx = null;
+
+  const setStatus = (text, live) => {
+    if (!el.status) return;
+    el.status.textContent = text;
+    el.status.classList.toggle("live", !!live);
+  };
+
+  const notice = (msg) => {
+    if (!el.notice) return;
+    el.notice.textContent = msg || "";
+    el.notice.classList.toggle("on", !!msg);
+  };
+
+  const beep = (ok) => {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      audioCtx = audioCtx || new AC();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      const t = audioCtx.currentTime;
+      const notes = ok ? [[1180, 0], [1760, 0.09]] : [[520, 0]];
+      notes.forEach(([freq, at]) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, t + at);
+        gain.gain.exponentialRampToValueAtTime(0.22, t + at + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.13);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(t + at);
+        osc.stop(t + at + 0.15);
+      });
+    } catch (e) {}
+  };
+
+  const buzz = (pattern) => {
+    try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) {}
+  };
+
+  const qrbox = () => {
+    const box = el.stage.getBoundingClientRect();
+    const w = Math.max(140, Math.min(box.width, box.height) * 0.78);
+    return { width: Math.round(w), height: Math.round(w * 0.6) };
+  };
+
+  const detectKind = (text) => {
+    if (/^https?:\/\//i.test(text)) return "Link";
+    if (/^mailto:/i.test(text)) return "Email";
+    if (/^tel:/i.test(text)) return "Phone";
+    if (/^WIFI:/i.test(text)) return "Wi-Fi";
+    if (/^\d{12,19}$/.test(text)) return "Card / numeric";
+    if (/^[0-9]{3}$/.test(text)) return "Country code";
+    if (/^[\w.+-]+@[\w-]+\.[\w.]+$/.test(text)) return "Email";
+    if (/^SKU:/i.test(text) || /^\d{8,14}$/.test(text)) return "Product code";
+    return "Barcode";
+  };
+
+  const show = (text) => {
+    lastValue = text;
+    el.value.textContent = text;
+    el.value.classList.remove("empty");
+    el.kind.textContent = detectKind(text);
+    el.result.classList.add("on");
+    el.open.hidden = !/^https?:\/\//i.test(text);
+  };
+
+  const remember = (text) => {
+    history = [text].concat(history.filter((v) => v !== text)).slice(0, 12);
+    el.history.classList.add("on");
+    el.list.replaceChildren(...history.map((v) => {
+      const li = document.createElement("li");
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = v;
+      b.onclick = () => { show(v); el.result.scrollIntoView({ behavior: "smooth", block: "center" }); };
+      li.appendChild(b);
+      return li;
+    }));
+  };
+
+  const onSuccess = async (text, isFallback) => {
+    if (!text) return;
+    const now = Date.now();
+    if (text === lastValue && now - lastScanAt < 1500) return;
+    lastScanAt = now;
+    show(text);
+    remember(text);
+    beep(true);
+    buzz([18, 40, 18]);
+    if (!continuous) {
+      await stop();
+      el.start.textContent = "Start camera";
+    }
+  };
+
+  const resetUi = () => {
+    el.torch.hidden = true;
+    el.torch.classList.remove("active");
+    el.flip.hidden = cameras.length < 2;
+    torchOn = false;
+  };
+
+  const build = () => {
+    if (scanner) { try { scanner.clear(); } catch (e) {} }
+    scanner = new Html5Qrcode("reader");
+  };
+
+  const syncTorch = () => {
+    const v = el.stage.querySelector("video");
+    const track = v && v.srcObject && v.srcObject.getVideoTracks()[0];
+    const caps = (track && track.getCapabilities) ? track.getCapabilities() : {};
+    el.torch.hidden = !("torch" in caps);
+    el.torch.classList.toggle("active", torchOn);
+  };
+
+  const start = async () => {
+    notice("");
+    if (!window.isSecureContext) {
+      notice("Camera access needs HTTPS (or localhost). Open this page over a secure connection.");
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      notice("This browser does not expose a camera API. Try Chrome, Safari or Firefox on mobile.");
+      return;
+    }
+    if (running) return;
+
+    el.start.disabled = true;
+    el.start.textContent = "Starting…";
+    build();
+
+    try {
+      cameras = (await Html5Qrcode.getCameras()) || [];
+    } catch (e) {
+      cameras = [];
+    }
+
+    if (!cameraId || !cameras.some((c) => c.id === cameraId)) {
+      const rear = cameras.find((c) => /back|rear|environment/i.test(c.label || ""));
+      cameraId = rear ? rear.id : (cameras[0] ? cameras[0].id : null);
+    }
+
+    const target = cameraId || { facingMode: "environment" };
+    const config = {
+      fps: 15,
+      qrbox,
+      aspectRatioMatch: 0,
+      disableFlip: false,
+      rememberLastUsedCamera: false,
+      showTorchButtonIfSupported: false
+    };
+
+    try {
+      await scanner.start(target, config, (t) => onSuccess(t, false), () => {});
+      running = true;
+      resetUi();
+      syncTorch();
+      setTimeout(syncTorch, 400);
+      el.idle.hidden = true;
+      el.guide.classList.add("on");
+      el.start.textContent = "Stop camera";
+      setStatus("Scanning", true);
+    } catch (e) {
+      running = false;
+      const raw = ((e && e.name) || "") + " :: " + ((e && e.message) || String(e || ""));
+      let msg;
+      if (/NotAllowedError|PermissionDenied|permission/i.test(raw)) {
+        msg = "Camera permission was denied. Allow the camera for this site, then tap Start camera again.";
+      } else if (/NotFoundError|OverconstrainedError|DevicesNotFound/i.test(raw)) {
+        msg = "No usable camera was found on this device.";
+      } else if (/NotReadableError|TrackStartError|already in use/i.test(raw)) {
+        msg = "The camera is already in use by another app. Close it and try again.";
+      } else if (/NotSupportedError|SecurityError|getUserMedia is not defined|not supported/i.test(raw)) {
+        msg = "This browser or device does not support camera capture. Try the latest Chrome, Safari or Firefox, and check that nothing else is holding the camera.";
+      } else {
+        msg = "Could not start the camera." + (raw.trim() ? " " + raw.trim() : "");
+      }
+      notice(msg);
+      setStatus("Idle", false);
+      el.start.textContent = "Start camera";
+    } finally {
+      el.start.disabled = false;
+    }
+  };
+
+  const stop = async () => {
+    if (!scanner) return;
+    try {
+      if (scanner.getState().isScanning) await scanner.stop();
+    } catch (e) {}
+    running = false;
+    torchOn = false;
+    el.guide.classList.remove("on");
+    el.idle.hidden = false;
+    resetUi();
+    el.start.textContent = "Start camera";
+    setStatus("Idle", false);
+  };
+
+  el.start.onclick = () => (running ? stop() : start());
+
+  el.flip.onclick = async () => {
+    if (!cameras.length) return;
+    const i = cameras.findIndex((c) => c.id === cameraId);
+    const next = cameras[(i + 1 + cameras.length) % cameras.length];
+    if (!next) return;
+    cameraId = next.id;
+    const wasRunning = running;
+    await stop();
+    if (wasRunning) await start();
+  };
+
+  el.torch.onclick = async () => {
+    const v = el.stage.querySelector("video");
+    const track = v && v.srcObject && v.srcObject.getVideoTracks()[0];
+    if (!track) return;
+    torchOn = !torchOn;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+      el.torch.classList.toggle("active", torchOn);
+    } catch (e) {
+      torchOn = false;
+      notice("The flashlight could not be toggled on this device.");
+    }
+  };
+
+  const setMode = (cont) => {
+    continuous = cont;
+    el.mCont.setAttribute("aria-pressed", String(cont));
+    el.mOnce.setAttribute("aria-pressed", String(!cont));
+  };
+  el.mCont.onclick = () => setMode(true);
+  el.mOnce.onclick = () => setMode(false);
+
+  el.copy.onclick = async () => {
+    if (!lastValue) return;
+    try {
+      await navigator.clipboard.writeText(lastValue);
+      el.copy.textContent = "Copied";
+    } catch (e) {
+      const ta = document.createElement("textarea");
+      ta.value = lastValue;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); el.copy.textContent = "Copied"; } catch (e2) {}
+      ta.remove();
+    }
+    setTimeout(() => (el.copy.textContent = "Copy"), 1400);
+  };
+
+  el.open.onclick = () => {
+    if (lastValue) window.open(lastValue, "_blank", "noopener");
+  };
+
+  el.clear.onclick = () => {
+    lastValue = null;
+    el.value.textContent = "";
+    el.result.classList.remove("on");
+  };
+
+  el.pick.onclick = () => el.file.click();
+  el.file.onchange = async () => {
+    const f = el.file.files && el.file.files[0];
+    el.file.value = "";
+    if (!f) return;
+    notice("");
+    el.pick.disabled = true;
+    el.pick.textContent = "Reading…";
+    try {
+      if (!fileScanner) fileScanner = new Html5Qrcode("file-host");
+      const text = await fileScanner.scanFile(f, true);
+      if (text) {
+        show(text);
+        remember(text);
+        beep(true);
+        buzz([18, 40, 18]);
+      } else {
+        beep(false);
+        notice("No barcode was found in that image.");
+      }
+    } catch (e) {
+      beep(false);
+      notice("That image could not be read. Try a clearer, closer photo.");
+    } finally {
+      el.pick.disabled = false;
+      el.pick.textContent = "From photo";
+    }
+  };
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && running) stop();
+  });
+  window.addEventListener("pagehide", stop);
+
+  if (!window.Html5Qrcode) {
+    notice("The scanner library failed to load. Check your connection and reload.");
+    el.start.disabled = true;
+    el.pick.disabled = true;
+  } else {
+    setMode(true);
+    setStatus("Idle", false);
+    window.addEventListener("load", () => {
+      Html5Qrcode.getCameras().then((c) => {
+        cameras = c || [];
+        if (cameras.length) cameraId = cameras[0].id;
+        resetUi();
+      }).catch(() => {});
+    });
+  }
+})();
+</script>
+</body>
+</html>
