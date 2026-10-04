@@ -50,18 +50,31 @@
 
   #stage {
     position: relative;
+    flex: none;
     margin: 0 16px;
     border-radius: 16px;
     overflow: hidden;
     background: #000;
-    aspect-ratio: 3 / 4;
-    max-height: 52dvh;
+    height: min(56dvh, 460px);
     display: grid;
     place-items: center;
   }
-  #reader, #reader > div, #reader video { width: 100% !important; height: 100% !important; }
-  #reader video { object-fit: cover; display: block; }
-  #reader__scan_region img { display: none; }
+  #reader {
+    width: 100% !important;
+    height: 100% !important;
+    position: relative;
+    overflow: hidden;
+  }
+  #reader video { width: 100% !important; height: 100% !important; object-fit: cover; display: block; }
+  #reader__dashboard_section_csr,
+  #reader__dashboard_section_swaplink,
+  #reader__dashboard,
+  #reader__status_span { display: none !important; }
+  #reader__scan_region,
+  #reader__scan_region > img,
+  #reader__scan_region > canvas { position: absolute !important; }
+  #reader__scan_region > img,
+  #reader__scan_region > canvas { display: none !important; }
 
   #idle {
     position: absolute;
@@ -125,6 +138,7 @@
   .tool.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
   #result {
+    flex: none;
     margin: 14px 16px 0;
     background: var(--panel);
     border: 1px solid var(--line);
@@ -133,7 +147,9 @@
     display: none;
   }
   #result.on { display: block; }
+  #result.bad { border-color: #5c3038; background: #221418; }
   #result .kind { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+  #result.bad .kind { color: #ff9a9a; font-weight: 600; }
   #value {
     margin: 6px 0 10px;
     font: 15px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -144,6 +160,8 @@
   #value.empty { color: var(--muted); font-family: inherit; }
 
   .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row.actions { flex: none; margin: 14px 16px 0; }
+  .row.actions > button { flex: 1 1 0; }
   button.act {
     flex: 1 1 auto;
     min-height: 44px;
@@ -178,7 +196,40 @@
   }
   #mode button[aria-pressed="true"] { background: var(--accent); color: #fff; }
 
-  #history { margin: 14px 16px calc(env(safe-area-inset-bottom) + 20px); }
+  .chip {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: calc(100% - 32px);
+    margin: 0 16px 12px;
+    min-height: 44px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .chip::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #4a5364;
+    flex: none;
+  }
+  .chip[aria-pressed="true"] { color: var(--txt); border-color: #2f4a7a; }
+  .chip[aria-pressed="true"]::before { background: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,.25); }
+
+  #history {
+    flex: none;
+    margin: 14px 16px calc(env(safe-area-inset-bottom) + 20px);
+    max-height: 26dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
   #history h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 8px; }
   #history ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
   #history:not(.on) { display: none; }
@@ -223,6 +274,8 @@
   <button id="mCont" aria-pressed="true">Continuous</button>
 </div>
 
+<button class="chip" id="strict" aria-pressed="true">Only accept 8-digit codes</button>
+
 <div id="stage">
   <div id="reader"></div>
 
@@ -256,7 +309,7 @@
   </div>
 </div>
 
-<div class="row" style="margin:14px 16px 0">
+<div class="row actions">
   <button class="act primary" id="start">Start camera</button>
   <button class="act" id="pick">From photo</button>
 </div>
@@ -281,7 +334,7 @@
     copy: $("#copy"), open: $("#open"), clear: $("#clear"),
     start: $("#start"), pick: $("#pick"), file: $("#file"),
     torch: $("#torch"), flip: $("#flip"), list: $("#list"),
-    mOnce: $("#mOnce"), mCont: $("#mCont"), history: $("#history")
+    mOnce: $("#mOnce"), mCont: $("#mCont"), history: $("#history"), strict: $("#strict")
   };
 
   let scanner = null;
@@ -292,6 +345,7 @@
   let torchOn = false;
   let running = false;
   let continuous = true;
+  let strict = true;
   let lastValue = null;
   let lastScanAt = 0;
   let history = [];
@@ -342,6 +396,8 @@
     return { width: Math.round(w), height: Math.round(w * 0.6) };
   };
 
+  const isEightDigits = (t) => /^[0-9]{8}$/.test(String(t).trim());
+
   const detectKind = (text) => {
     if (/^https?:\/\//i.test(text)) return "Link";
     if (/^mailto:/i.test(text)) return "Email";
@@ -354,13 +410,17 @@
     return "Barcode";
   };
 
-  const show = (text) => {
+  const show = (text, valid) => {
     lastValue = text;
     el.value.textContent = text;
     el.value.classList.remove("empty");
-    el.kind.textContent = detectKind(text);
+    const ok = valid !== false;
+    el.kind.textContent = ok
+      ? detectKind(text)
+      : "Invalid — needs exactly 8 digits";
+    el.result.classList.toggle("bad", !ok);
     el.result.classList.add("on");
-    el.open.hidden = !/^https?:\/\//i.test(text);
+    el.open.hidden = !ok || !/^https?:\/\//i.test(text);
   };
 
   const remember = (text) => {
@@ -377,19 +437,27 @@
     }));
   };
 
-  const onSuccess = async (text, isFallback) => {
-    if (!text) return;
+  const ingest = async (raw, opts) => {
+    const o = opts || {};
+    if (!raw) return;
+    const clean = String(raw).trim();
     const now = Date.now();
-    if (text === lastValue && now - lastScanAt < 1500) return;
+    if (clean === lastValue && now - lastScanAt < 1500) return;
     lastScanAt = now;
-    show(text);
-    remember(text);
+
+    const valid = !strict || isEightDigits(clean);
+    show(clean, valid);
+
+    if (!valid) {
+      beep(false);
+      buzz([45, 70, 45]);
+      return;
+    }
+
+    remember(clean);
     beep(true);
     buzz([18, 40, 18]);
-    if (!continuous) {
-      await stop();
-      el.start.textContent = "Start camera";
-    }
+    if (o.stopAfter) await stop();
   };
 
   const resetUi = () => {
@@ -464,7 +532,7 @@
     };
 
     try {
-      await scanner.start(target, config, (t) => onSuccess(t, false), () => {});
+      await scanner.start(target, config, (t) => ingest(t, { stopAfter: !continuous }), () => {});
       running = true;
       resetUi();
       syncTorch();
@@ -551,6 +619,15 @@
   el.mCont.onclick = () => setMode(true);
   el.mOnce.onclick = () => setMode(false);
 
+  el.strict.onclick = () => {
+    strict = !strict;
+    el.strict.setAttribute("aria-pressed", String(strict));
+    if (!strict) {
+      el.result.classList.remove("bad");
+      if (lastValue) el.kind.textContent = detectKind(lastValue);
+    }
+  };
+
   el.copy.onclick = async () => {
     if (!lastValue) return;
     try {
@@ -574,7 +651,7 @@
   el.clear.onclick = () => {
     lastValue = null;
     el.value.textContent = "";
-    el.result.classList.remove("on");
+    el.result.classList.remove("on", "bad");
   };
 
   el.pick.onclick = () => el.file.click();
@@ -589,10 +666,7 @@
       if (!fileScanner) fileScanner = new Html5Qrcode("file-host");
       const text = await fileScanner.scanFile(f, true);
       if (text) {
-        show(text);
-        remember(text);
-        beep(true);
-        buzz([18, 40, 18]);
+        await ingest(text, {});
       } else {
         beep(false);
         notice("No barcode was found in that image.");
