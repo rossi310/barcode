@@ -288,6 +288,7 @@
   let fileScanner = null;
   let cameras = [];
   let cameraId = null;
+  let userChose = false;
   let torchOn = false;
   let running = false;
   let continuous = true;
@@ -398,6 +399,25 @@
     torchOn = false;
   };
 
+  const isRear = (cam) => {
+    const label = cam.label || "";
+    if (!label) return false;
+    return /back|rear|environment/i.test(label) && !/front|user|face/i.test(label);
+  };
+
+  const resolveTarget = () => {
+    if (userChose && cameraId && cameras.some((c) => c.id === cameraId)) {
+      return cameraId;
+    }
+    const rear = cameras.find(isRear);
+    if (rear) {
+      cameraId = rear.id;
+      return rear.id;
+    }
+    cameraId = null;
+    return { facingMode: "environment" };
+  };
+
   const build = () => {
     if (scanner) { try { scanner.clear(); } catch (e) {} }
     scanner = new Html5Qrcode("reader");
@@ -433,12 +453,7 @@
       cameras = [];
     }
 
-    if (!cameraId || !cameras.some((c) => c.id === cameraId)) {
-      const rear = cameras.find((c) => /back|rear|environment/i.test(c.label || ""));
-      cameraId = rear ? rear.id : (cameras[0] ? cameras[0].id : null);
-    }
-
-    const target = cameraId || { facingMode: "environment" };
+    const target = resolveTarget();
     const config = {
       fps: 15,
       qrbox,
@@ -498,11 +513,17 @@
   el.start.onclick = () => (running ? stop() : start());
 
   el.flip.onclick = async () => {
-    if (!cameras.length) return;
-    const i = cameras.findIndex((c) => c.id === cameraId);
-    const next = cameras[(i + 1 + cameras.length) % cameras.length];
+    if (cameras.length < 2) return;
+    let next;
+    if (cameraId) {
+      const i = cameras.findIndex((c) => c.id === cameraId);
+      next = cameras[(i + 1) % cameras.length];
+    } else {
+      next = cameras.find((c) => !isRear(c)) || cameras[1];
+    }
     if (!next) return;
     cameraId = next.id;
+    userChose = true;
     const wasRunning = running;
     await stop();
     if (wasRunning) await start();
@@ -600,7 +621,6 @@
     window.addEventListener("load", () => {
       Html5Qrcode.getCameras().then((c) => {
         cameras = c || [];
-        if (cameras.length) cameraId = cameras[0].id;
         resetUi();
       }).catch(() => {});
     });
