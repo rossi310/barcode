@@ -1,443 +1,705 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trip Attendance & Tracking App</title>
-    <!-- Tailwind CSS for styling -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Html5-Qrcode Library for camera barcode/QR scanning -->
-    <script src="https://unpkg.com/html5-qrcode"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Barcode Scanner</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #181c24;
+    --line: #2a3140;
+    --txt: #e7ebf2;
+    --muted: #97a1b3;
+    --accent: #3b82f6;
+    --ok: #22c55e;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--txt);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    touch-action: manipulation;
+    overscroll-behavior-y: contain;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  header {
+    padding: calc(env(safe-area-inset-top) + 12px) 16px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  .spacer { flex: 1; }
+  #status {
+    font-size: 12px;
+    color: var(--muted);
+    padding: 4px 9px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  #status.live { color: var(--ok); border-color: #1c5233; }
+
+  #stage {
+    position: relative;
+    flex: none;
+    margin: 0 16px;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #000;
+    height: min(56dvh, 460px);
+    display: grid;
+    place-items: center;
+  }
+  #reader {
+    width: 100% !important;
+    height: 100% !important;
+    position: relative;
+    overflow: hidden;
+  }
+  #reader video { width: 100% !important; height: 100% !important; object-fit: cover; display: block; }
+  #reader__dashboard_section_csr,
+  #reader__dashboard_section_swaplink,
+  #reader__dashboard,
+  #reader__status_span { display: none !important; }
+  #reader__scan_region,
+  #reader__scan_region > img,
+  #reader__scan_region > canvas { position: absolute !important; }
+  #reader__scan_region > img,
+  #reader__scan_region > canvas { display: none !important; }
+
+  #idle {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    gap: 10px;
+    text-align: center;
+    color: var(--muted);
+    padding: 20px;
+    font-size: 14px;
+  }
+
+  #guide {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .25s;
+  }
+  #guide.on { opacity: 1; }
+  #guide i {
+    position: absolute;
+    width: 26px; height: 26px;
+    border: 3px solid var(--accent);
+  }
+  #guide i:nth-child(1) { top: 32%; left: 8%;  border-right: 0; border-bottom: 0; border-radius: 8px 0 0 0; }
+  #guide i:nth-child(2) { top: 32%; right: 8%; border-left: 0;  border-bottom: 0; border-radius: 0 8px 0 0; }
+  #guide i:nth-child(3) { bottom: 32%; left: 8%;  border-right: 0; border-top: 0; border-radius: 0 0 0 8px; }
+  #guide i:nth-child(4) { bottom: 32%; right: 8%; border-left: 0;  border-top: 0; border-radius: 0 0 8px 0; }
+
+  .bar {
+    position: absolute;
+    left: 8%; right: 8%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: sweep 2.2s ease-in-out infinite;
+  }
+  @keyframes sweep { 0%,100% { top: 33%; } 50% { top: 67%; } }
+
+  .tools {
+    position: absolute;
+    top: 10px;
+    display: flex;
+    gap: 8px;
+  }
+  .tools.left { left: 10px; }
+  .tools.right { right: 10px; }
+  .tool {
+    width: 42px; height: 42px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: rgba(12,14,18,.72);
+    color: var(--txt);
+    backdrop-filter: blur(6px);
+    font-size: 18px;
+    display: grid;
+    place-items: center;
+  }
+  .tool[hidden] { display: none; }
+  .tool.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  #result {
+    flex: none;
+    margin: 14px 16px 0;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+    display: none;
+  }
+  #result.on { display: block; }
+  #result.bad { border-color: #5c3038; background: #221418; }
+  #result .kind { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+  #result.bad .kind { color: #ff9a9a; font-weight: 600; }
+  #value {
+    margin: 6px 0 10px;
+    font: 15px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    word-break: break-all;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  #value.empty { color: var(--muted); font-family: inherit; }
+
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row.actions { flex: none; margin: 14px 16px 0; }
+  .row.actions > button { flex: 1 1 0; }
+  button.act {
+    flex: 1 1 auto;
+    min-height: 44px;
+    padding: 0 16px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: #212734;
+    color: var(--txt);
+    font-size: 15px;
+    font-weight: 500;
+  }
+  button.act.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.act:active { transform: scale(.98); }
+
+  #mode {
+    display: flex;
+    gap: 6px;
+    margin: 0 16px 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 4px;
+  }
+  #mode button {
+    flex: 1;
+    min-height: 38px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  #mode button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+  .chip {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: calc(100% - 32px);
+    margin: 0 16px 12px;
+    min-height: 44px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .chip::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #4a5364;
+    flex: none;
+  }
+  .chip[aria-pressed="true"] { color: var(--txt); border-color: #2f4a7a; }
+  .chip[aria-pressed="true"]::before { background: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,.25); }
+
+  #history {
+    flex: none;
+    margin: 14px 16px calc(env(safe-area-inset-bottom) + 20px);
+    max-height: 26dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  #history h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 8px; }
+  #history ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  #history:not(.on) { display: none; }
+  #history li button {
+    width: 100%;
+    text-align: left;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 12px;
+    color: var(--txt);
+    font: 13px/1.35 ui-monospace, Menlo, Consolas, monospace;
+    word-break: break-all;
+  }
+  #history:empty, #history ol:empty { display: none; }
+
+  #notice {
+    margin: 12px 16px 0;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid #4a2a2a;
+    background: #241618;
+    color: #ffd7d7;
+    font-size: 14px;
+    display: none;
+  }
+  #notice.on { display: block; }
+  #file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  #file-host { position: absolute; width: 0; height: 0; overflow: hidden; opacity: 0; }
+</style>
 </head>
-<body class="bg-gray-100 text-gray-900 font-sans min-h-screen">
+<body>
 
-    <div class="max-w-md mx-auto p-4 bg-white shadow-lg min-h-screen flex flex-col justify-between">
-        <div>
-            <!-- Header & Mode Selection -->
-            <header class="mb-4">
-                <h1 class="text-xl font-bold text-center text-blue-600">Trip Attendance Tracker</h1>
-                <div class="mt-3">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Select Checkpoint Mode:</label>
-                    <select id="modeSelect" class="w-full p-2 border border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                        <option value="1_initial">1. Initial Check-in</option>
-                        <option value="2_outbound">2. Outbound Coach Boarding</option>
-                        <option value="3_return">3. Return Coach Boarding</option>
-                    </select>
-                </div>
-            </header>
+<header>
+  <h1>Barcode Scanner</h1>
+  <div class="spacer"></div>
+  <div id="status">Idle</div>
+</header>
 
-            <!-- Scanner Section -->
-            <div class="bg-black rounded-lg overflow-hidden relative mb-4 shadow-inner">
-                <div id="reader" style="width: 100%;"></div>
-            </div>
+<div id="mode">
+  <button id="mOnce" aria-pressed="false">Once</button>
+  <button id="mCont" aria-pressed="true">Continuous</button>
+</div>
 
-            <!-- Status Banner / Feedback -->
-            <div id="statusMessage" class="p-3 mb-4 text-center rounded-lg text-sm font-medium bg-gray-50 border border-gray-200">
-                Ready to scan student badges...
-            </div>
+<button class="chip" id="strict" aria-pressed="true">Only accept 8-digit codes</button>
 
-            <!-- Navigation Tabs -->
-            <div class="flex border-b border-gray-200 mb-4">
-                <button onclick="switchTab('scanner')" id="tabScanner" class="flex-1 py-2 text-center font-medium text-blue-600 border-b-2 border-blue-600">Scanner</button>
-                <button onclick="switchTab('dashboard')" id="tabDashboard" class="flex-1 py-2 text-center font-medium text-gray-500">Dashboard</button>
-                <button onclick="switchTab('admin')" id="tabAdmin" class="flex-1 py-2 text-center font-medium text-gray-500">Admin</button>
-            </div>
+<div id="stage">
+  <div id="reader"></div>
 
-            <!-- Dashboard View (Hidden by default) -->
-            <div id="dashboardView" class="hidden">
-                <div class="flex justify-between items-center mb-2">
-                    <h2 class="font-bold text-gray-800">Student List (<span id="studentCount">0</span>)</h2>
-                </div>
-                
-                <!-- Search & Filters -->
-                <div class="space-y-2 mb-3">
-                    <input type="text" id="searchInput" oninput="renderDashboard()" placeholder="Search by name or 8-digit ID..." class="w-full p-2 border border-gray-300 rounded-lg text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                    
-                    <div class="flex gap-2">
-                        <select id="coachFilter" onchange="renderDashboard()" class="w-1/2 p-2 border border-gray-300 rounded-lg text-sm bg-white shadow-sm">
-                            <option value="all">All Coaches</option>
-                        </select>
-                        <button onclick="toggleMissingFilter()" id="filterBtn" class="w-1/2 text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded font-medium shadow-sm">Show Missing Only</button>
-                    </div>
-                </div>
+  <div id="idle">
+    <div>Point the camera at a barcode or QR code</div>
+    <div style="opacity:.7">Uses the rear camera. Works best in good light.</div>
+  </div>
 
-                <div id="studentList" class="space-y-2 max-h-80 overflow-y-auto pr-1">
-                    <!-- Dynamic student rows inserted here -->
-                </div>
-            </div>
+  <div id="guide">
+    <i></i><i></i><i></i><i></i>
+    <div class="bar"></div>
+  </div>
 
-            <!-- Admin View (Hidden by default) -->
-            <div id="adminView" class="hidden space-y-4">
-                <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <h2 class="font-bold text-gray-800 mb-2">Student Database Management</h2>
-                    <p class="text-xs text-gray-500 mb-3">Upload a CSV file (format: <code class="bg-gray-200 px-1 py-0.5 rounded">id,name,coach</code> where ID is 8 digits). <span class="text-red-600 font-semibold">Note: Clears existing records.</span></p>
-                    
-                    <input type="file" id="csvFileInput" accept=".csv" class="text-xs mb-3 w-full p-2 border border-gray-300 rounded bg-white">
-                    <button onclick="uploadCSVToFirestore()" class="w-full bg-blue-600 text-white text-xs py-2 rounded font-medium shadow hover:bg-blue-700">Clear & Upload Students</button>
-                </div>
-            </div>
-        </div>
+  <div class="tools left">
+    <button class="tool" id="torch" title="Flashlight" hidden>☀</button>
+  </div>
+  <div class="tools right">
+    <button class="tool" id="flip" title="Switch camera" hidden>&#8635;</button>
+  </div>
+</div>
 
-        <!-- Footer Info -->
-        <footer class="mt-4 text-center text-xs text-gray-400">
-            Firebase Offline Sync Enabled • Staff Member: Staff_A
-        </footer>
-    </div>
+<div id="notice"></div>
 
-    <!-- Firebase SDK & Core Logic -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { 
-            getFirestore, 
-            doc, 
-            updateDoc, 
-            serverTimestamp, 
-            collection, 
-            getDocs,
-            deleteDoc,
-            writeBatch,
-            onSnapshot, 
-            initializeFirestore, 
-            persistentLocalCache, 
-            persistentMultipleTabManager 
-        } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+<div id="result">
+  <div class="kind" id="kind">Scanned</div>
+  <div id="value"></div>
+  <div class="row">
+    <button class="act primary" id="copy">Copy</button>
+    <button class="act" id="open" hidden>Open link</button>
+    <button class="act" id="clear">Clear</button>
+  </div>
+</div>
 
-       const firebaseConfig = {
-            apiKey: "AIzaSyD_3i6we52kL1LwhUFbkkOXW6hv3ct9gR0",
-            authDomain: "database-8b116.firebaseapp.com",
-            databaseURL: "https://database-8b116.firebaseio.com",
-            projectId: "database-8b116",
-            storageBucket: "database-8b116.appspot.com",
-            messagingSenderId: "92775910026",
-            appId: "1:92775910026:web:084fd98414e9e0e23c7b73"
-        };
+<div class="row actions">
+  <button class="act primary" id="start">Start camera</button>
+  <button class="act" id="pick">From photo</button>
+</div>
 
-        
-        const app = initializeApp(firebaseConfig);
-        const db = initializeFirestore(app, {
-            localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
-        });
+<section id="history">
+  <h2>Recent</h2>
+  <ol id="list"></ol>
+</section>
 
-        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+<input type="file" id="file" accept="image/*">
+<div id="file-host"></div>
 
-        const auth = getAuth(app);
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+(() => {
+  "use strict";
 
-        // Automatically sign in anonymously when the app opens
-        signInAnonymously(auth)
-        .then(() => {
-            console.log("Logged in anonymously for secure writes.");
-        })
-        .catch((error) => {
-            console.error("Auth error:", error);
-        });
+  const $ = (s) => document.querySelector(s);
+  const el = {
+    stage: $("#stage"), idle: $("#idle"), guide: $("#guide"), status: $("#status"),
+    notice: $("#notice"), result: $("#result"), value: $("#value"), kind: $("#kind"),
+    copy: $("#copy"), open: $("#open"), clear: $("#clear"),
+    start: $("#start"), pick: $("#pick"), file: $("#file"),
+    torch: $("#torch"), flip: $("#flip"), list: $("#list"),
+    mOnce: $("#mOnce"), mCont: $("#mCont"), history: $("#history"), strict: $("#strict")
+  };
 
-        let currentMode = document.getElementById("modeSelect").value;
-        let showMissingOnly = false;
-        let studentsData = {};
+  let scanner = null;
+  let fileScanner = null;
+  let cameras = [];
+  let cameraId = null;
+  let userChose = false;
+  let torchOn = false;
+  let running = false;
+  let continuous = true;
+  let strict = true;
+  let lastValue = null;
+  let lastScanAt = 0;
+  let history = [];
+  let audioCtx = null;
 
-        // Debounce variables to prevent constant re-scanning of the same badge
-        let lastScannedCode = "";
-        let lastScanTime = 0;
+  const setStatus = (text, live) => {
+    if (!el.status) return;
+    el.status.textContent = text;
+    el.status.classList.toggle("live", !!live);
+  };
 
-        document.getElementById("modeSelect").addEventListener("change", (e) => {
-            currentMode = e.target.value;
-            renderDashboard();
-        });
+  const notice = (msg) => {
+    if (!el.notice) return;
+    el.notice.textContent = msg || "";
+    el.notice.classList.toggle("on", !!msg);
+  };
 
-        function playSuccessFeedback() {
-            if (navigator.vibrate) navigator.vibrate(200);
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(587.33, audioCtx.currentTime);
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            oscillator.start();
-            oscillator.stop(audioCtx.currentTime + 0.15);
-        }
+  const beep = (ok) => {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      audioCtx = audioCtx || new AC();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      const t = audioCtx.currentTime;
+      const notes = ok ? [[1180, 0], [1760, 0.09]] : [[520, 0]];
+      notes.forEach(([freq, at]) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, t + at);
+        gain.gain.exponentialRampToValueAtTime(0.22, t + at + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.13);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(t + at);
+        osc.stop(t + at + 0.15);
+      });
+    } catch (e) {}
+  };
 
-        function playErrorFeedback() {
-            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-            oscillator.type = 'sawtooth';
-            oscillator.frequency.setValueAtTime(150, audioCtx.currentTime);
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            oscillator.start();
-            oscillator.stop(audioCtx.currentTime + 0.3);
-        }
+  const buzz = (pattern) => {
+    try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) {}
+  };
 
-        function onScanSuccess(decodedText) {
-            const cleanedId = decodedText.trim();
-            const now = Date.now();
+  const qrbox = () => {
+    const box = el.stage.getBoundingClientRect();
+    const w = Math.max(140, Math.min(box.width, box.height) * 0.78);
+    return { width: Math.round(w), height: Math.round(w * 0.6) };
+  };
 
-            // Ignore if it's the exact same code scanned within the last 3 seconds
-            if (cleanedId === lastScannedCode && (now - lastScanTime < 3000)) {
-                return;
-            }
+  const isEightDigits = (t) => /^[0-9]{8}$/.test(String(t).trim());
 
-            if (!/^\d{8}$/.test(cleanedId)) {
-                playErrorFeedback();
-                document.getElementById("statusMessage").innerHTML = `<span class="text-amber-600 font-bold">Invalid Barcode: Must be 8 digits (${cleanedId})</span>`;
-                return;
-            }
+  const detectKind = (text) => {
+    if (/^https?:\/\//i.test(text)) return "Link";
+    if (/^mailto:/i.test(text)) return "Email";
+    if (/^tel:/i.test(text)) return "Phone";
+    if (/^WIFI:/i.test(text)) return "Wi-Fi";
+    if (/^\d{12,19}$/.test(text)) return "Card / numeric";
+    if (/^[0-9]{3}$/.test(text)) return "Country code";
+    if (/^[\w.+-]+@[\w-]+\.[\w.]+$/.test(text)) return "Email";
+    if (/^SKU:/i.test(text) || /^\d{8,14}$/.test(text)) return "Product code";
+    return "Barcode";
+  };
 
-            // Update debounce tracker
-            lastScannedCode = cleanedId;
-            lastScanTime = now;
+  const show = (text, valid) => {
+    lastValue = text;
+    el.value.textContent = text;
+    el.value.classList.remove("empty");
+    const ok = valid !== false;
+    el.kind.textContent = ok
+      ? detectKind(text)
+      : "Invalid — needs exactly 8 digits";
+    el.result.classList.toggle("bad", !ok);
+    el.result.classList.add("on");
+    el.open.hidden = !ok || !/^https?:\/\//i.test(text);
+  };
 
-            const studentRef = doc(db, "students", cleanedId);
-            
-            updateDoc(studentRef, {
-                [`checkpoints.${currentMode}.scanned`]: true,
-                [`checkpoints.${currentMode}.timestamp`]: serverTimestamp(),
-                [`checkpoints.${currentMode}.scannedBy`]: "Staff_A",
-                ...(currentMode === "3_return" && { "missing": false })
-            })
-            .then(() => {
-                playSuccessFeedback();
-                const studentName = studentsData[cleanedId]?.name || cleanedId;
-                document.getElementById("statusMessage").innerHTML = `<span class="text-green-600 font-bold">Checked in: ${studentName}</span>`;
-            })
-            .catch((error) => {
-                playErrorFeedback();
-                document.getElementById("statusMessage").innerHTML = `<span class="text-red-600 font-bold">Error: Student ID not found in database.</span>`;
-                console.error("Scan update error: ", error);
-            });
-        }
+  const remember = (text) => {
+    history = [text].concat(history.filter((v) => v !== text)).slice(0, 12);
+    el.history.classList.add("on");
+    el.list.replaceChildren(...history.map((v) => {
+      const li = document.createElement("li");
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = v;
+      b.onclick = () => { show(v); el.result.scrollIntoView({ behavior: "smooth", block: "center" }); };
+      li.appendChild(b);
+      return li;
+    }));
+  };
 
-        const html5QrCode = new Html5Qrcode("reader");
-        html5QrCode.start(
-            { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 150 } },
-            onScanSuccess
-        ).catch(err => {
-            console.error("Camera initialization failed.", err);
-            document.getElementById("statusMessage").innerText = "Camera access denied or not available.";
-        });
+  const ingest = async (raw, opts) => {
+    const o = opts || {};
+    if (!raw) return;
+    const clean = String(raw).trim();
+    const now = Date.now();
+    if (clean === lastValue && now - lastScanAt < 1500) return;
+    lastScanAt = now;
 
-        onSnapshot(collection(db, "students"), (snapshot) => {
-            studentsData = {};
-            snapshot.forEach((doc) => {
-                studentsData[doc.id] = doc.data();
-            });
-            updateCoachDropdown();
-            renderDashboard();
-        }, (error) => {
-            console.error("Firestore sync error:", error);
-        });
+    const valid = !strict || isEightDigits(clean);
+    show(clean, valid);
 
-        function getLastName(fullName) {
-            if (!fullName) return "";
-            const parts = fullName.trim().split(/\s+/);
-            if (fullName.includes(",")) {
-                return parts[0].replace(",", "").toLowerCase();
-            }
-            return parts[parts.length - 1].toLowerCase();
-        }
+    if (!valid) {
+      beep(false);
+      buzz([45, 70, 45]);
+      return;
+    }
 
-        window.toggleStudentStatus = async function(studentId, currentStatus) {
-            const newStatus = !currentStatus;
-            const studentRef = doc(db, "students", studentId);
-            
-            try {
-                await updateDoc(studentRef, {
-                    [`checkpoints.${currentMode}.scanned`]: newStatus,
-                    [`checkpoints.${currentMode}.timestamp`]: newStatus ? serverTimestamp() : null,
-                    [`checkpoints.${currentMode}.scannedBy`]: newStatus ? "Staff_A_Manual" : null,
-                    ...(currentMode === "3_return" && { "missing": !newStatus })
-                });
-                if (newStatus) playSuccessFeedback();
-            } catch (error) {
-                playErrorFeedback();
-                console.error("Manual toggle error: ", error);
-            }
-        }
+    remember(clean);
+    beep(true);
+    buzz([18, 40, 18]);
+    if (o.stopAfter) await stop();
+  };
 
-        window.uploadCSVToFirestore = async function() {
-            const fileInput = document.getElementById("csvFileInput");
-            if (!fileInput.files.length) {
-                alert("Please select a CSV file first.");
-                return;
-            }
+  const resetUi = () => {
+    el.torch.hidden = true;
+    el.torch.classList.remove("active");
+    el.flip.hidden = cameras.length < 2;
+    torchOn = false;
+  };
 
-            if (!confirm("Are you sure? This will clear all existing student records and replace them with the CSV file.")) {
-                return;
-            }
+  const isRear = (cam) => {
+    const label = cam.label || "";
+    if (!label) return false;
+    return /back|rear|environment/i.test(label) && !/front|user|face/i.test(label);
+  };
 
-            try {
-                document.getElementById("statusMessage").innerHTML = `<span class="text-blue-600 font-bold">Clearing old records...</span>`;
-                
-                const querySnapshot = await getDocs(collection(db, "students"));
-                const deleteBatch = writeBatch(db);
-                querySnapshot.forEach((document) => {
-                    deleteBatch.delete(document.ref);
-                });
-                await deleteBatch.commit();
+  const resolveTarget = () => {
+    if (userChose && cameraId && cameras.some((c) => c.id === cameraId)) {
+      return cameraId;
+    }
+    const rear = cameras.find(isRear);
+    if (rear) {
+      cameraId = rear.id;
+      return rear.id;
+    }
+    cameraId = null;
+    return { facingMode: "environment" };
+  };
 
-                const file = fileInput.files[0];
-                const text = await file.text();
-                const rows = text.split("\n");
+  const build = () => {
+    if (scanner) { try { scanner.clear(); } catch (e) {} }
+    scanner = new Html5Qrcode("reader");
+  };
 
-                const insertBatch = writeBatch(db);
-                let count = 0;
+  const syncTorch = () => {
+    const v = el.stage.querySelector("video");
+    const track = v && v.srcObject && v.srcObject.getVideoTracks()[0];
+    const caps = (track && track.getCapabilities) ? track.getCapabilities() : {};
+    el.torch.hidden = !("torch" in caps);
+    el.torch.classList.toggle("active", torchOn);
+  };
 
-                for (let i = 1; i < rows.length; i++) {
-                    const row = rows[i].trim();
-                    if (!row) continue;
-                    let parts = row.split(",");
-                    if (parts.length < 2) continue;
+  const start = async () => {
+    notice("");
+    if (!window.isSecureContext) {
+      notice("Camera access needs HTTPS (or localhost). Open this page over a secure connection.");
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      notice("This browser does not expose a camera API. Try Chrome, Safari or Firefox on mobile.");
+      return;
+    }
+    if (running) return;
 
-                    let id = parts[0].trim();
-                    let name = parts[1].trim();
-                    let coach = parts[2] ? parts[2].trim() : "1"; // Default to coach 1 if omitted
+    el.start.disabled = true;
+    el.start.textContent = "Starting…";
+    build();
 
-                    if (/^\d{8}$/.test(id)) {
-                        const studentRef = doc(db, "students", id);
-                        insertBatch.set(studentRef, {
-                            name: name,
-                            coach: coach,
-                            missing: true,
-                            checkpoints: {
-                                "1_initial": { scanned: false, timestamp: null, scannedBy: null },
-                                "2_outbound": { scanned: false, timestamp: null, scannedBy: null },
-                                "3_return": { scanned: false, timestamp: null, scannedBy: null }
-                            }
-                        });
-                        count++;
-                    }
-                }
+    try {
+      cameras = (await Html5Qrcode.getCameras()) || [];
+    } catch (e) {
+      cameras = [];
+    }
 
-                await insertBatch.commit();
-                alert(`Successfully cleared and uploaded ${count} students!`);
-                document.getElementById("statusMessage").innerHTML = `<span class="text-green-600 font-bold">Upload complete (${count} students)</span>`;
-            } catch (error) {
-                console.error("Error clearing/uploading CSV:", error);
-                alert("Failed to process CSV. Check console for details.");
-            }
-        }
+    const target = resolveTarget();
+    const config = {
+      fps: 15,
+      qrbox,
+      aspectRatioMatch: 0,
+      disableFlip: false,
+      rememberLastUsedCamera: false,
+      showTorchButtonIfSupported: false
+    };
 
-        function updateCoachDropdown() {
-            const coachSelect = document.getElementById("coachFilter");
-            if (!coachSelect) return;
-            const currentSelected = coachSelect.value;
+    try {
+      await scanner.start(target, config, (t) => ingest(t, { stopAfter: !continuous }), () => {});
+      running = true;
+      resetUi();
+      syncTorch();
+      setTimeout(syncTorch, 400);
+      el.idle.hidden = true;
+      el.guide.classList.add("on");
+      el.start.textContent = "Stop camera";
+      setStatus("Scanning", true);
+    } catch (e) {
+      running = false;
+      const raw = ((e && e.name) || "") + " :: " + ((e && e.message) || String(e || ""));
+      let msg;
+      if (/NotAllowedError|PermissionDenied|permission/i.test(raw)) {
+        msg = "Camera permission was denied. Allow the camera for this site, then tap Start camera again.";
+      } else if (/NotFoundError|OverconstrainedError|DevicesNotFound/i.test(raw)) {
+        msg = "No usable camera was found on this device.";
+      } else if (/NotReadableError|TrackStartError|already in use/i.test(raw)) {
+        msg = "The camera is already in use by another app. Close it and try again.";
+      } else if (/NotSupportedError|SecurityError|getUserMedia is not defined|not supported/i.test(raw)) {
+        msg = "This browser or device does not support camera capture. Try the latest Chrome, Safari or Firefox, and check that nothing else is holding the camera.";
+      } else {
+        msg = "Could not start the camera." + (raw.trim() ? " " + raw.trim() : "");
+      }
+      notice(msg);
+      setStatus("Idle", false);
+      el.start.textContent = "Start camera";
+    } finally {
+      el.start.disabled = false;
+    }
+  };
 
-            // Collect unique coaches
-            const coaches = new Set();
-            Object.values(studentsData).forEach(s => {
-                if (s.coach) coaches.add(s.coach);
-            });
+  const stop = async () => {
+    if (!scanner) return;
+    try {
+      if (scanner.getState().isScanning) await scanner.stop();
+    } catch (e) {}
+    running = false;
+    torchOn = false;
+    el.guide.classList.remove("on");
+    el.idle.hidden = false;
+    resetUi();
+    el.start.textContent = "Start camera";
+    setStatus("Idle", false);
+  };
 
-            coachSelect.innerHTML = '<option value="all">All Coaches</option>';
-            Array.from(coaches).sort((a, b) => a.localeCompare(b, undefined, {numeric: true})).forEach(c => {
-                const opt = document.createElement("option");
-                opt.value = c;
-                opt.innerText = `Coach ${c}`;
-                coachSelect.appendChild(opt);
-            });
+  el.start.onclick = () => (running ? stop() : start());
 
-            coachSelect.value = coaches.has(currentSelected) ? currentSelected : "all";
-        }
+  el.flip.onclick = async () => {
+    if (cameras.length < 2) return;
+    let next;
+    if (cameraId) {
+      const i = cameras.findIndex((c) => c.id === cameraId);
+      next = cameras[(i + 1) % cameras.length];
+    } else {
+      next = cameras.find((c) => !isRear(c)) || cameras[1];
+    }
+    if (!next) return;
+    cameraId = next.id;
+    userChose = true;
+    const wasRunning = running;
+    await stop();
+    if (wasRunning) await start();
+  };
 
-        window.renderDashboard = function() {
-            const listEl = document.getElementById("studentList");
-            listEl.innerHTML = "";
-            let count = 0;
+  el.torch.onclick = async () => {
+    const v = el.stage.querySelector("video");
+    const track = v && v.srcObject && v.srcObject.getVideoTracks()[0];
+    if (!track) return;
+    torchOn = !torchOn;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+      el.torch.classList.toggle("active", torchOn);
+    } catch (e) {
+      torchOn = false;
+      notice("The flashlight could not be toggled on this device.");
+    }
+  };
 
-            const searchQuery = document.getElementById("searchInput") ? document.getElementById("searchInput").value.toLowerCase() : "";
-            const selectedCoach = document.getElementById("coachFilter") ? document.getElementById("coachFilter").value : "all";
+  const setMode = (cont) => {
+    continuous = cont;
+    el.mCont.setAttribute("aria-pressed", String(cont));
+    el.mOnce.setAttribute("aria-pressed", String(!cont));
+  };
+  el.mCont.onclick = () => setMode(true);
+  el.mOnce.onclick = () => setMode(false);
 
-            // Sort primarily by Coach, then secondarily by Last Name
-            const sortedIds = Object.keys(studentsData).sort((a, b) => {
-                const coachA = studentsData[a].coach || "";
-                const coachB = studentsData[b].coach || "";
-                if (coachA !== coachB) {
-                    return coachA.localeCompare(coachB, undefined, {numeric: true});
-                }
-                const nameA = getLastName(studentsData[a].name);
-                const nameB = getLastName(studentsData[b].name);
-                return nameA.localeCompare(nameB);
-            });
+  el.strict.onclick = () => {
+    strict = !strict;
+    el.strict.setAttribute("aria-pressed", String(strict));
+    if (!strict) {
+      el.result.classList.remove("bad");
+      if (lastValue) el.kind.textContent = detectKind(lastValue);
+    }
+  };
 
-            sortedIds.forEach(id => {
-                const student = studentsData[id];
-                const studentName = (student.name || "").toLowerCase();
-                const studentCoach = student.coach || "1";
-                const checkpointScanned = student.checkpoints?.[currentMode]?.scanned || false;
+  el.copy.onclick = async () => {
+    if (!lastValue) return;
+    try {
+      await navigator.clipboard.writeText(lastValue);
+      el.copy.textContent = "Copied";
+    } catch (e) {
+      const ta = document.createElement("textarea");
+      ta.value = lastValue;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); el.copy.textContent = "Copied"; } catch (e2) {}
+      ta.remove();
+    }
+    setTimeout(() => (el.copy.textContent = "Copy"), 1400);
+  };
 
-                if (showMissingOnly && checkpointScanned) return;
-                if (selectedCoach !== "all" && studentCoach !== selectedCoach) return;
-                if (searchQuery && !studentName.includes(searchQuery) && !id.includes(searchQuery)) return;
+  el.open.onclick = () => {
+    if (lastValue) window.open(lastValue, "_blank", "noopener");
+  };
 
-                count++;
-                const item = document.createElement("div");
-                item.className = `p-2 rounded border flex justify-between items-center text-sm ${checkpointScanned ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`;
-                item.innerHTML = `
-                    <div class="flex items-center space-x-3">
-                        <input type="checkbox" ${checkpointScanned ? 'checked' : ''} 
-                            onclick="toggleStudentStatus('${id}', ${checkpointScanned})" 
-                            class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer">
-                        <div>
-                            <span class="font-bold">${student.name || 'Unknown Student'}</span>
-                            <div class="text-xs text-gray-500">ID: ${id} | <span class="font-semibold text-blue-600">Coach ${studentCoach}</span></div>
-                        </div>
-                    </div>
-                    <div>
-                        <span class="px-2 py-1 text-xs rounded font-medium ${checkpointScanned ? 'bg-green-200 text-green-800' : 'bg-red-100 text-red-800'}">
-                            ${checkpointScanned ? 'Checked In' : 'Missing'}
-                        </span>
-                    </div>
-                `;
-                listEl.appendChild(item);
-            });
-            document.getElementById("studentCount").innerText = count;
-        }
+  el.clear.onclick = () => {
+    lastValue = null;
+    el.value.textContent = "";
+    el.result.classList.remove("on", "bad");
+  };
 
-        window.switchTab = function(tab) {
-            const scannerView = document.getElementById("reader").parentElement;
-            const dashboardView = document.getElementById("dashboardView");
-            const adminView = document.getElementById("adminView");
-            
-            const tabScanner = document.getElementById("tabScanner");
-            const tabDashboard = document.getElementById("tabDashboard");
-            const tabAdmin = document.getElementById("tabAdmin");
+  el.pick.onclick = () => el.file.click();
+  el.file.onchange = async () => {
+    const f = el.file.files && el.file.files[0];
+    el.file.value = "";
+    if (!f) return;
+    notice("");
+    el.pick.disabled = true;
+    el.pick.textContent = "Reading…";
+    try {
+      if (!fileScanner) fileScanner = new Html5Qrcode("file-host");
+      const text = await fileScanner.scanFile(f, true);
+      if (text) {
+        await ingest(text, {});
+      } else {
+        beep(false);
+        notice("No barcode was found in that image.");
+      }
+    } catch (e) {
+      beep(false);
+      notice("That image could not be read. Try a clearer, closer photo.");
+    } finally {
+      el.pick.disabled = false;
+      el.pick.textContent = "From photo";
+    }
+  };
 
-            tabScanner.className = "flex-1 py-2 text-center font-medium text-gray-500";
-            tabDashboard.className = "flex-1 py-2 text-center font-medium text-gray-500";
-            tabAdmin.className = "flex-1 py-2 text-center font-medium text-gray-500";
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && running) stop();
+  });
+  window.addEventListener("pagehide", stop);
 
-            scannerView.classList.add("hidden");
-            dashboardView.classList.add("hidden");
-            adminView.classList.add("hidden");
-
-            if (tab === 'scanner') {
-                scannerView.classList.remove("hidden");
-                tabScanner.className = "flex-1 py-2 text-center font-medium text-blue-600 border-b-2 border-blue-600";
-            } else if (tab === 'dashboard') {
-                dashboardView.classList.remove("hidden");
-                tabDashboard.className = "flex-1 py-2 text-center font-medium text-blue-600 border-b-2 border-blue-600";
-                renderDashboard();
-            } else if (tab === 'admin') {
-                adminView.classList.remove("hidden");
-                tabAdmin.className = "flex-1 py-2 text-center font-medium text-blue-600 border-b-2 border-blue-600";
-            }
-        }
-
-        window.toggleMissingFilter = function() {
-            showMissingOnly = !showMissingOnly;
-            const btn = document.getElementById("filterBtn");
-            if (showMissingOnly) {
-                btn.className = "w-1/2 text-xs bg-amber-500 text-white px-2 py-1 rounded font-medium shadow-sm";
-                btn.innerText = "Showing Missing Only";
-            } else {
-                btn.className = "w-1/2 text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded font-medium shadow-sm";
-                btn.innerText = "Show Missing Only";
-            }
-            renderDashboard();
-        }
-    </script>
+  if (!window.Html5Qrcode) {
+    notice("The scanner library failed to load. Check your connection and reload.");
+    el.start.disabled = true;
+    el.pick.disabled = true;
+  } else {
+    setMode(true);
+    setStatus("Idle", false);
+    window.addEventListener("load", () => {
+      Html5Qrcode.getCameras().then((c) => {
+        cameras = c || [];
+        resetUi();
+      }).catch(() => {});
+    });
+  }
+})();
+</script>
 </body>
 </html>
